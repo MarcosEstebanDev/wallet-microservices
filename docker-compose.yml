@@ -19,6 +19,11 @@ services:
       - '5433:5432'
     volumes:
       - postgres_auth_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d auth_db']
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   postgres-accounts:
     image: postgres:16-alpine
@@ -30,6 +35,11 @@ services:
       - '5434:5432'
     volumes:
       - postgres_accounts_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d accounts_db']
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   postgres-transactions:
     image: postgres:16-alpine
@@ -41,6 +51,11 @@ services:
       - '5435:5432'
     volumes:
       - postgres_transactions_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d transactions_db']
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   # ── Servicios ────────────────────────────────────────────────
   api-gateway:
@@ -64,8 +79,10 @@ services:
     env_file:
       - apps/auth-service/.env
     depends_on:
-      - nats
-      - postgres-auth
+      nats:
+        condition: service_started
+      postgres-auth:
+        condition: service_healthy
 
   accounts-service:
     build:
@@ -74,8 +91,10 @@ services:
     env_file:
       - apps/accounts-service/.env
     depends_on:
-      - nats
-      - postgres-accounts
+      nats:
+        condition: service_started
+      postgres-accounts:
+        condition: service_healthy
 
   transactions-service:
     build:
@@ -84,8 +103,10 @@ services:
     env_file:
       - apps/transactions-service/.env
     depends_on:
-      - nats
-      - postgres-transactions
+      nats:
+        condition: service_started
+      postgres-transactions:
+        condition: service_healthy
 
   notifications-service:
     build:

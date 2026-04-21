@@ -1,98 +1,164 @@
+# 💳 Wallet Microservices
+
 <p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
+  <img src="https://img.shields.io/badge/NestJS-E0234E?style=for-the-badge&logo=nestjs&logoColor=white" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" />
+  <img src="https://img.shields.io/badge/NATS-27AAE1?style=for-the-badge&logo=natsdotio&logoColor=white" />
+  <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" />
+  <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" />
 </p>
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Billetera digital simulada construida con arquitectura de **microservicios**. Cada servicio tiene su propia base de datos y se comunica de forma asíncrona a través de **NATS**.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## 🏗️ Arquitectura
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+```mermaid
+graph TD
+    Client(["🌐 Cliente HTTP"])
 
-## Project setup
+    subgraph Gateway["API Gateway :3000"]
+        GW[/"api/v1"/]
+    end
 
-```bash
-$ npm install
+    subgraph Broker["Message Broker"]
+        NATS["📨 NATS"]
+    end
+
+    subgraph Services["Microservicios"]
+        AUTH["🔐 auth-service"]
+        ACC["🏦 accounts-service"]
+        TXN["💸 transactions-service"]
+        NOTIF["🔔 notifications-service"]
+    end
+
+    subgraph Databases["Bases de datos (PostgreSQL)"]
+        DB_AUTH[("auth_db")]
+        DB_ACC[("accounts_db")]
+        DB_TXN[("transactions_db")]
+    end
+
+    Client -->|REST| GW
+    GW -->|NATS publish/subscribe| NATS
+    NATS --> AUTH
+    NATS --> ACC
+    NATS --> TXN
+    NATS --> NOTIF
+
+    AUTH --- DB_AUTH
+    ACC --- DB_ACC
+    TXN --- DB_TXN
 ```
 
-## Compile and run the project
+---
 
-```bash
-# development
-$ npm run start
+## 🔄 Flujo de transferencia
 
-# watch mode
-$ npm run start:dev
+```mermaid
+sequenceDiagram
+    actor User
+    participant GW as API Gateway
+    participant NATS
+    participant TXN as transactions-service
+    participant ACC as accounts-service
+    participant NOTIF as notifications-service
 
-# production mode
-$ npm run start:prod
+    User->>GW: POST /transactions/transfer
+    GW->>NATS: transaction.transfer
+    NATS->>TXN: procesar transferencia
+    TXN->>TXN: crea TX → status: PENDING
+    TXN->>NATS: account.updateBalance (débito)
+    NATS->>ACC: descuenta saldo al emisor
+    TXN->>NATS: account.updateBalance (crédito)
+    NATS->>ACC: acredita saldo al receptor
+    TXN->>TXN: TX → status: COMPLETED
+    TXN-->>NATS: transaction.completed (evento)
+    NATS-->>NOTIF: envía notificación
+    TXN-->>GW: respuesta
+    GW-->>User: 201 Created
 ```
 
-## Run tests
+---
+
+## 📦 Servicios
+
+| Servicio | Responsabilidad | Puerto interno | DB |
+|---|---|---|---|
+| `api-gateway` | Punto de entrada HTTP, validación JWT | `3000` | — |
+| `auth-service` | Registro, login, generación de JWT | NATS | `auth_db` |
+| `accounts-service` | Cuentas y saldos | NATS | `accounts_db` |
+| `transactions-service` | Transferencias e historial | NATS | `transactions_db` |
+| `notifications-service` | Notificaciones de eventos | NATS | — |
+
+---
+
+## 🚀 Levantar el proyecto
+
+### Requisitos
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- Node.js 20+
+
+### Con Docker (recomendado)
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+docker compose up --build -d
 ```
 
-## Deployment
+Todos los servicios, bases de datos y el broker levantan automáticamente.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### Desarrollo local
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm install
+# Levantar solo la infraestructura
+docker compose up nats postgres-auth postgres-accounts postgres-transactions -d
+# Correr un servicio en watch mode
+npm run start:dev auth-service
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+---
 
-## Resources
+## 📡 API Endpoints
 
-Check out a few resources that may come in handy when working with NestJS:
+Base URL: `http://localhost:3000/api/v1`
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+### Auth
+| Método | Endpoint | Auth | Descripción |
+|---|---|---|---|
+| `POST` | `/auth/register` | ❌ | Registrar usuario |
+| `POST` | `/auth/login` | ❌ | Login, retorna JWT |
 
-## Support
+### Accounts
+| Método | Endpoint | Auth | Descripción |
+|---|---|---|---|
+| `POST` | `/accounts` | ✅ | Crear cuenta |
+| `GET` | `/accounts/balance` | ✅ | Ver saldo |
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### Transactions
+| Método | Endpoint | Auth | Descripción |
+|---|---|---|---|
+| `POST` | `/transactions/transfer` | ✅ | Transferir fondos |
+| `GET` | `/transactions/history` | ✅ | Historial de movimientos |
+| `GET` | `/transactions/:id` | ✅ | Detalle de transacción |
 
-## Stay in touch
+---
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+## 🧱 Principios aplicados
 
-## License
+- **SOLID**: cada servicio tiene una única responsabilidad y depende de abstracciones (NATS), no de implementaciones concretas.
+- **Database per Service**: cada microservicio tiene su propia base de datos aislada.
+- **API Gateway pattern**: único punto de entrada que centraliza autenticación y enrutamiento.
+- **Event-driven**: las notificaciones se disparan mediante eventos asíncronos, sin acoplamiento directo.
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+---
+
+## 🛠️ Stack
+
+- **Framework**: NestJS (monorepo)
+- **Lenguaje**: TypeScript
+- **Mensajería**: NATS
+- **ORM**: TypeORM
+- **Base de datos**: PostgreSQL
+- **Contenedores**: Docker Compose
+- **Auth**: JWT (jsonwebtoken)
